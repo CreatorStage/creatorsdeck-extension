@@ -3,7 +3,7 @@
  * Injected directly into YouTube pages.
  */
 
-let apiBaseUrl = "http://localhost:8080";
+let apiBaseUrl = "http://localhost:8082";
 let jwtToken = null;
 let activeModalVideo = null;
 let currentChannels = [];
@@ -201,7 +201,7 @@ async function handleChannelPageClick(btnElement) {
 
   try {
     const storage = await chrome.storage.local.get(["apiBaseUrl", "jwtToken"]);
-    let apiBaseUrl = storage.apiBaseUrl || "http://localhost:8080";
+    let apiBaseUrl = storage.apiBaseUrl || "http://localhost:8082";
     if (apiBaseUrl.startsWith("http://api.creatorsdeck.site")) {
       apiBaseUrl = apiBaseUrl.replace("http://", "https://");
     }
@@ -599,6 +599,10 @@ async function renderCollectorForm() {
           <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 0 24 24" width="20" fill="currentColor"><path d="M5 4v3h5.5v12h3V7H19V4z"/></svg>
           Salvar Título
         </button>
+        <button id="cc-btn-save-canal-suggestions" class="cc-btn" style="background-color: #ff5045;">
+          <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 0 24 24" width="20" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+          Coletar Sugestões do Canal
+        </button>
       </div>
     </div>
     
@@ -680,6 +684,7 @@ function setupModalTabs() {
   document.getElementById("cc-btn-create-idea").addEventListener("click", handleModalCreateIdea);
   document.getElementById("cc-btn-save-canal-thumb").addEventListener("click", () => handleModalSaveCanalDirect("THUMBNAIL"));
   document.getElementById("cc-btn-save-canal-title").addEventListener("click", () => handleModalSaveCanalDirect("TITLE"));
+  document.getElementById("cc-btn-save-canal-suggestions").addEventListener("click", handleModalSaveCanalSuggestions);
 }
 
 // Populate Channels Dropdown
@@ -892,6 +897,49 @@ async function handleModalSaveCanalDirect(refType) {
   }
 }
 
+// Save YouTube channel reference and trigger suggestions scrape
+async function handleModalSaveCanalSuggestions() {
+  const selectCh = document.getElementById("cc-select-channel");
+  const selectedChannel = selectCh.value;
+
+  if (!selectedChannel) {
+    return showModalAlert("error", "Selecione o canal de destino.");
+  }
+
+  const isChannel = activeModalVideo.type === "channel";
+  const targetUrl = isChannel ? activeModalVideo.url : activeModalVideo.channelUrl;
+  const targetName = isChannel ? (activeModalVideo.channelName || activeModalVideo.title.replace("[Canal] ", "")) : activeModalVideo.channelName;
+
+  if (!targetUrl) {
+    return showModalAlert("error", "Não foi possível detectar a URL do canal de origem neste vídeo. Tente recarregar a página.");
+  }
+
+  toggleModalLoader(true);
+  hideModalAlert();
+
+  try {
+    await apiFetch(`/api/channels/${selectedChannel}/references`, {
+      method: "POST",
+      body: {
+        title: `Canal: ${targetName || "YouTube"}`,
+        url: targetUrl,
+        note: "Coleta de sugestões de vídeos deste canal.",
+        thumbnailUrl: isChannel ? activeModalVideo.photoUrl : "",
+        type: "LINK",
+        scrapeChannelUrl: targetUrl
+      }
+    });
+
+    showModalAlert("success", "Solicitação de sugestões enviada com sucesso!");
+    setTimeout(closeModal, 1500);
+  } catch (err) {
+    console.error(err);
+    showModalAlert("error", err.message || "Erro ao solicitar a coleta de sugestões.");
+  } finally {
+    toggleModalLoader(false);
+  }
+}
+
 
 // Helper alerts
 function showModalAlert(type, msg) {
@@ -960,6 +1008,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       document.querySelector("#channel-name a") ||
       document.querySelector(".ytd-channel-name a");
     const channelName = channelEl ? channelEl.textContent.trim() : "";
+    const channelUrl = channelEl ? channelEl.href : "";
 
     let videoId = null;
     try {
@@ -970,6 +1019,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({
       title: title,
       channelName: channelName,
+      channelUrl: channelUrl,
       url: url,
       videoId: videoId,
       type: "video"

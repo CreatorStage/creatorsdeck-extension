@@ -1,7 +1,7 @@
 // YT Creator Collector Popup Logic
 
 // State variables
-let apiBaseUrl = "http://localhost:8080";
+let apiBaseUrl = "http://localhost:8082";
 let jwtToken = null;
 let currentUser = null;
 let currentVideo = null; // Contains: title, channelName, url, videoId
@@ -57,6 +57,7 @@ const modeCanal = document.getElementById("mode-canal");
 
 const btnSaveCanalThumb = document.getElementById("btn-save-canal-thumb");
 const btnSaveCanalTitle = document.getElementById("btn-save-canal-title");
+const btnSaveCanalSuggestions = document.getElementById("btn-save-canal-suggestions");
 
 // Initialize extension popup
 document.addEventListener("DOMContentLoaded", async () => {
@@ -150,6 +151,7 @@ function setupEventListeners() {
   // Save directly to Channel Action
   btnSaveCanalThumb.addEventListener("click", () => handleSaveCanalDirect("THUMBNAIL"));
   btnSaveCanalTitle.addEventListener("click", () => handleSaveCanalDirect("TITLE"));
+  btnSaveCanalSuggestions.addEventListener("click", handleSaveCanalSuggestions);
 }
 
 // Show/Hide Screens
@@ -650,6 +652,55 @@ async function handleSaveCanalDirect(refType) {
   } catch (err) {
     console.error(err);
     showAlert("error", err.message || "Erro ao salvar referência no canal.");
+  } finally {
+    toggleLoader(false);
+  }
+}
+
+// Save YouTube channel reference and trigger suggestions scrape
+async function handleSaveCanalSuggestions() {
+  const channelId = selectChannel.value;
+  if (!channelId) {
+    return showAlert("error", "Selecione um canal destino.");
+  }
+
+  const isChannel = currentVideo.type === "channel";
+  const targetUrl = isChannel ? currentVideo.url : currentVideo.channelUrl;
+  const targetName = isChannel ? (currentVideo.channelName || currentVideo.title.replace("[Canal] ", "")) : currentVideo.channelName;
+
+  if (!targetUrl) {
+    return showAlert("error", "Não foi possível detectar a URL do canal de origem neste vídeo. Tente recarregar a página.");
+  }
+
+  toggleLoader(true);
+  hideAlert();
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/channels/${channelId}/references`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${jwtToken}`
+      },
+      body: JSON.stringify({
+        title: `Canal: ${targetName || "YouTube"}`,
+        url: targetUrl,
+        note: "Coleta de sugestões de vídeos deste canal.",
+        thumbnailUrl: isChannel ? currentVideo.photoUrl : "",
+        type: "LINK",
+        scrapeChannelUrl: targetUrl
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error("Erro ao solicitar a coleta de sugestões do canal.");
+    }
+
+    showAlert("success", "Solicitação de sugestões enviada com sucesso!");
+    setTimeout(window.close, 1500); // Close popup
+  } catch (err) {
+    console.error(err);
+    showAlert("error", err.message || "Erro ao solicitar a coleta de sugestões.");
   } finally {
     toggleLoader(false);
   }
